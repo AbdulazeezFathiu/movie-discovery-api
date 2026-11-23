@@ -15,6 +15,7 @@ from .serializers import (
     ReviewSerializer,
     WatchedMovieSerializer,
 )
+from rest_framework.pagination import PageNumberPagination
 from .nlp.semantic_search import semantic_movie_search
 from .nlp.mood import recommend_by_mood, MOOD_DESCRIPTIONS
 from .nlp.personalized import personalized_recommendations
