@@ -12,6 +12,11 @@ from .views import PersonalizedRecommendationView
 urlpatterns = [
     path('welcome/', views.welcome, name='welcome'),
     path('movies/', views.movie_list, name='movie-list'),
+    path(
+        "movies/hybrid-search/",
+        views.hybrid_search_view,
+        name="hybrid-search"
+    ),
     path('movies/<int:pk>/', views.movie_detail, name='movie-detail'),
     path(
         'watchlist/',
@@ -71,4 +76,5 @@ urlpatterns = [
         PersonalizedRecommendationView.as_view(),
         name="personalized-recommendations"
     ),
+
     ]

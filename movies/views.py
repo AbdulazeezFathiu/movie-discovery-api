@@ -26,6 +26,7 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiTypes,
 )
+from movies.nlp.hybrid import hybrid_movie_search
 @extend_schema(
     operation_id="api_welcome",
     responses={200: OpenApiTypes.OBJECT},
@@ -673,3 +674,67 @@ class PersonalizedRecommendationView(APIView):
             "count": len(recommendations),
             "recommendations": recommendations
         })
+
+@extend_schema(
+    operation_id="hybrid_movie_search",
+    summary="Hybrid AI movie search",
+    description=(
+        "Combines ONNX semantic search and "
+        "TF-IDF keyword matching using "
+        "Reciprocal Rank Fusion."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="q",
+            type=OpenApiTypes.STR,
+            required=True,
+            location=OpenApiParameter.QUERY,
+        ),
+        OpenApiParameter(
+            name="limit",
+            type=OpenApiTypes.INT,
+            required=False,
+            location=OpenApiParameter.QUERY,
+        ),
+    ],
+    responses={200: OpenApiTypes.OBJECT},
+)
+@api_view(["GET"])
+def hybrid_search_view(request):
+
+    query = request.query_params.get("q", "").strip()
+
+    if not query:
+        return Response(
+            {"error": "Search query is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        limit = int(
+            request.query_params.get("limit", 5)
+        )
+    except (ValueError, TypeError):
+        return Response(
+            {"error": "Limit must be an integer."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if not 1 <= limit <= 20:
+        return Response(
+            {"error": "Limit must be between 1 and 20."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    results = hybrid_movie_search(
+        query=query,
+        limit=limit
+    )
+
+    return Response({
+        "query": query,
+        "count": len(results),
+        "search_type": "hybrid",
+        "ranking_method": "RRF",
+        "results": results
+    })

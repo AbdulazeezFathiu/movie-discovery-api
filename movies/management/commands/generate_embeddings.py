@@ -9,23 +9,25 @@ from movies.nlp.semantic_search import (
 
 
 class Command(BaseCommand):
-    help = "Generate and store movie embeddings"
+    help = "Generate improved movie embeddings"
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--force",
             action="store_true",
-            help="Regenerate existing embeddings"
+            help="Regenerate all existing embeddings"
         )
 
     def handle(self, *args, **options):
         force = options["force"]
 
-        movies = Movie.objects.exclude(
-            overview=""
-        ).exclude(
-            overview__isnull=True
-        ).order_by("id")
+        movies = (
+            Movie.objects
+            .exclude(overview="")
+            .exclude(overview__isnull=True)
+            .prefetch_related("genres")
+            .order_by("id")
+        )
 
         model = get_embedding_model()
 
@@ -34,11 +36,11 @@ class Command(BaseCommand):
         skipped_count = 0
 
         for movie in movies:
+
             existing = MovieEmbedding.objects.filter(
                 movie=movie
             ).first()
 
-            # Skip embeddings that are already current
             if (
                 existing
                 and not force
@@ -48,20 +50,36 @@ class Command(BaseCommand):
                 skipped_count += 1
                 continue
 
+            # Retrieve movie genres
+            genres = ", ".join(
+                genre.name
+                for genre in movie.genres.all()
+            )
+
+            # Build richer movie description
+            movie_text = (
+                f"Movie title: {movie.title}. "
+                f"Genres: {genres}. "
+                f"Plot: {movie.overview}"
+            )
+
+            # Generate improved embedding
             embedding = model.encode_document(
-                movie.overview,
+                movie_text,
                 normalize_embeddings=True
             )
 
             vector = embedding.tolist()
 
-            record, created = MovieEmbedding.objects.update_or_create(
-                movie=movie,
-                defaults={
-                    "vector": vector,
-                    "model_name": MODEL_NAME,
-                    "source_updated_at": movie.updated_at,
-                }
+            record, created = (
+                MovieEmbedding.objects.update_or_create(
+                    movie=movie,
+                    defaults={
+                        "vector": vector,
+                        "model_name": MODEL_NAME,
+                        "source_updated_at": movie.updated_at,
+                    }
+                )
             )
 
             if created:
@@ -78,9 +96,11 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Created: {created_count}"
         )
+
         self.stdout.write(
             f"Updated: {updated_count}"
         )
+
         self.stdout.write(
             f"Skipped: {skipped_count}"
         )
