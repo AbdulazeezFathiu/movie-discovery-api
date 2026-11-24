@@ -6,3 +6,4 @@ db.sqlite3
 db_backup.sqlite3
 sqlite_backup.json
 staticfiles/
+onnx_model/

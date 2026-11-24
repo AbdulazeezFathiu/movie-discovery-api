@@ -1,0 +1,16 @@
+Django>=6.0,<7.0
+djangorestframework
+djangorestframework-simplejwt
+drf-spectacular
+psycopg2-binary
+dj-database-url
+python-dotenv
+whitenoise
+gunicorn
+requests
+numpy
+scikit-learn
+nltk
+onnxruntime
+tokenizers
+huggingface-hub

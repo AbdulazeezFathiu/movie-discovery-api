@@ -4,42 +4,36 @@ from functools import lru_cache
 import numpy as np
 
 from movies.models import Movie, MovieEmbedding
+from movies.nlp.onnx_encoder import encode_query_onnx
 
 
-# Sentence Transformer model
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-
 EMBEDDING_DIMENSION = 384
 
 
 @lru_cache(maxsize=1)
 def get_embedding_model():
     """
-    Load the Sentence Transformer model only when needed.
+    Legacy model loader.
 
-    This avoids importing PyTorch and Sentence Transformers
-    during normal Django startup.
+    Used by the offline embedding-generation command,
+    not by the live semantic-search endpoint.
     """
-
     from sentence_transformers import SentenceTransformer
 
-    model = SentenceTransformer(
+    return SentenceTransformer(
         MODEL_NAME,
         device="cpu"
     )
-
-    return model
 
 
 @lru_cache(maxsize=1)
 def get_movie_embeddings(cache_version):
     """
-    Legacy in-memory embedding function.
+    Legacy in-memory embeddings.
 
-    Kept for compatibility with existing code.
-    New semantic search uses PostgreSQL embeddings.
+    Retained temporarily for backward compatibility.
     """
-
     movies = list(
         Movie.objects
         .exclude(overview="")
@@ -50,15 +44,10 @@ def get_movie_embeddings(cache_version):
     if not movies:
         return [], None
 
-    descriptions = [
-        movie.overview
-        for movie in movies
-    ]
-
     model = get_embedding_model()
 
     embeddings = model.encode_document(
-        descriptions,
+        [movie.overview for movie in movies],
         normalize_embeddings=True
     )
 
@@ -67,17 +56,19 @@ def get_movie_embeddings(cache_version):
 
 def semantic_movie_search(query, limit=5):
     """
-    Search movies using embeddings stored in PostgreSQL.
-
-    Only the user's query is encoded at request time.
-    Movie embeddings are retrieved from the database.
+    Search movies using:
+    - PostgreSQL-stored movie embeddings
+    - ONNX Runtime query embedding generation
+    - Cosine similarity ranking
     """
 
-    # Step 1: Validate the search query
-    if not query or not query.strip():
+    if not isinstance(query, str) or not query.strip():
         return []
 
-    # Step 2: Retrieve stored embeddings
+    # Validate result limit
+    limit = max(1, int(limit))
+
+    # Retrieve saved movie embeddings
     records = list(
         MovieEmbedding.objects
         .select_related("movie")
@@ -85,74 +76,58 @@ def semantic_movie_search(query, limit=5):
         .order_by("movie_id")
     )
 
-    if not records:
-        return []
-
-    # Step 3: Filter outdated or invalid embeddings
-    valid_records = []
-
-    for record in records:
-
-        if record.source_updated_at != record.movie.updated_at:
-            continue
-
-        if not isinstance(record.vector, list):
-            continue
-
-        if len(record.vector) != EMBEDDING_DIMENSION:
-            continue
-
-        valid_records.append(record)
+    # Filter outdated or invalid embeddings
+    valid_records = [
+        record
+        for record in records
+        if (
+            record.source_updated_at
+            == record.movie.updated_at
+            and isinstance(record.vector, list)
+            and len(record.vector) == EMBEDDING_DIMENSION
+        )
+    ]
 
     if not valid_records:
         return []
 
-    # Step 4: Convert stored vectors to NumPy
+    # Movie embeddings from PostgreSQL
     movie_embeddings = np.asarray(
         [record.vector for record in valid_records],
         dtype=np.float32
     )
 
-    # Step 5: Load model only when required
-    model = get_embedding_model()
+    # Generate query embedding using ONNX
+    # No PyTorch or Sentence Transformers required here
+    query_embedding = encode_query_onnx(query)
 
-    # Step 6: Encode the search query
-    query_embedding = np.asarray(
-        model.encode_query(
-            query,
-            normalize_embeddings=True
-        ),
-        dtype=np.float32
-    )
-
-    # Step 7: Calculate similarity scores
+    # Calculate similarity
     similarity_scores = np.dot(
         movie_embeddings,
         query_embedding
     )
 
-    # Step 8: Build search results
+    # Prepare results
     results = []
 
-    for index, score in enumerate(similarity_scores):
-
-        movie = valid_records[index].movie
+    for record, score in zip(
+        valid_records,
+        similarity_scores
+    ):
+        if not np.isfinite(score):
+            continue
 
         results.append({
-            "id": movie.id,
-            "title": movie.title,
-            "overview": movie.overview,
-            "similarity_score": round(
-                float(score),
-                4
-            )
+            "id": record.movie.id,
+            "title": record.movie.title,
+            "overview": record.movie.overview,
+            "similarity_score": round(float(score), 4)
         })
 
-    # Step 9: Rank by similarity
+    # Highest similarity first
     results.sort(
         key=lambda item: item["similarity_score"],
         reverse=True
     )
 
-    # Step 10: Return top matches
     return results[:limit]

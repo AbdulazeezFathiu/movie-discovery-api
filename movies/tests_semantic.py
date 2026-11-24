@@ -116,8 +116,8 @@ class SemanticRecommendationTests(TestCase):
         )
 
         with patch(
-            "movies.nlp.semantic_search.get_embedding_model",
-            return_value=fake_model
+                "movies.nlp.semantic_search.encode_query_onnx",
+                return_value=query_vector
         ):
             results = semantic_movie_search(
                 "space exploration",
@@ -160,8 +160,8 @@ class SemanticRecommendationTests(TestCase):
         )
 
         with patch(
-            "movies.nlp.semantic_search.get_embedding_model",
-            return_value=fake_model
+                "movies.nlp.semantic_search.encode_query_onnx",
+                return_value=query_vector
         ):
             results = semantic_movie_search(
                 "space exploration",
